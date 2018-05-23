@@ -1,7 +1,7 @@
 import numpy as np
 import cv2 as cv
 import matplotlib.pyplot as plt
-import moviepy.editor as mpy
+# import moviepy.editor as mpy
 import pims
 import h5py
 import pandas as pd
@@ -51,7 +51,7 @@ class bed_surfaces(object):
 
     # method to overwrite an existing dataset with new data
     def overwrite_dataset(self, frange, data_in):
-        print 'Saving bed surface...'
+        print('Saving bed surface...')
 
         with h5py.File(self.file_name, 'r+') as f:
             # set dataset name
@@ -94,7 +94,7 @@ class bed_surfaces(object):
         with h5py.File(self.file_name, 'r+') as f:
             grp = f['/' + self.group]
             dset = grp[dataset_name]
-            return [(name, val) for name, val in dset.attrs.iteritems()]
+            return [(name, val) for name, val in dset.attrs.items()]
 
 
     # method to get a specific attribute value for dataset
@@ -131,7 +131,7 @@ class bed_surfaces(object):
         animation = mpy.VideoClip(make_frame, duration=duration)
         animation.write_videofile(str(self.file_name.parent / self.file_name.stem) + '.mp4', fps=fps) # export as video
 
-####################################### must modify below this line ##################
+ ####################################### must modify below this line ##################
 
 
     def bed_line_preprocess(self, img):
@@ -167,11 +167,11 @@ class bed_surfaces(object):
 
         imgs = np.zeros((n_frames, np.int(self.info['vertical_dim']), np.int(self.info['horizontal_dim'])))
 
-        print 'Loading images for bed surface function...'
+        print('Loading images for bed surface function...')
         for frame in tqdm.tqdm(range(n_frames)):
             imgs[frame,:,:] = np.array(self.bed_line_preprocess(self.frames[frange[0] + frame]))
 
-        print 'Calculating bed surface...'
+        print('Calculating bed surface...')
 
         # find bed surface
         df_bed_surface = np.zeros((np.int(n_frames), np.int(self.info['horizontal_dim'])+1))
