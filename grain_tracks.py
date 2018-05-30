@@ -1,5 +1,6 @@
 import numpy as np
 import pims
+import os
 import pandas as pd
 import trackpy
 import trackpy.predict as tp_predict
@@ -79,4 +80,5 @@ class grain_tracks(object):
                 'particle': ('ind', p_tracks.particle.values)
                 }).set_index(ind=['frame', 'particle'])
 
+        if os.path.isfile(str(self.file_name)) is True: os.remove(str(self.file_name))
         self.tracks.reset_index('ind').to_netcdf(self.file_name)

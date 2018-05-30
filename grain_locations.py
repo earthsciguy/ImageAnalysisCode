@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 import pims
 import h5py
 import matplotlib.pyplot as plt
@@ -14,29 +15,23 @@ class grain_locations(object):
         self.pims_path = file_path
         self.path = file_path.parent
 
-        try:
-            self.file_name = list(self.path.rglob('*locs.h5'))[0]
-            self.name = self.file_name.stem
-            # self.make_group()
-
-        except:
-            self.name = str(file_path.parent.parent.stem) + '_locs.h5'
-            self.file_name = self.path / self.name
+        self.name = str(file_path.parent.parent.stem) + '_locs.h5'
+        self.file_name = self.path / self.name
+        # self.make_group()
 
         self.info = vid_info
-        self.dt = 1
-        self.pix_to_mm = 1
-        # self.dt = 1./self.info['frame_rate'] # time between frames
-        # self.pix_to_mm = self.info['pixel_d']
+        self.dt = 1./self.info['frame_rate'] # time between frames
+        self.pix_to_mm = 4.95 / self.get_attr('mean_radius')
+
 
     def make_group(self):
         # open given hdf5 file, file is safely closed when with statement ends
         with h5py.File(self.file_name, 'a') as f:
+            print(list(f.keys()))
             dset = f['/grain_locs'][:,0]
-            frange = (int(dset.min()), int(dset.max()))
-
-            self.make_dataset_attr('start_frame', frange[0])
-            self.make_dataset_attr('end_frame', frange[1])
+            self.make_dataset_attr('start_frame', int(dset.min()))
+            self.make_dataset_attr('end_frame', int(dset.max()))
+            self.make_dataset_attr('mean_radius', np.nanmean(f['/grain_locs'][:,1]))
 
     # method to add attributes to given dataset
     def make_dataset_attr(self, attribute_title, attribute_value):
@@ -92,13 +87,13 @@ class grain_locations(object):
 
         img = self.frames[frame_num]
 
-        rings = self.locations(frange=(frame_num, frame_num+1))
+        rings = self.get(frange=(frame_num, frame_num+1))
 
         if rings is not None:
-            r = int(np.mean(rings[:,1]))
-            for ring in rings:
+            # r = int(rings.radius.mean())
+            for ii in range(rings.radius.values.size):
                 # draw the center of the circle
-                cv.circle(img, (int(ring[2]),int(ring[3])), r, (0,0,0), 1, cv.LINE_AA)
+                cv.circle(img, (int(rings.x_pix[ii].values),int(rings.y_pix[ii].values)), rings.radius[ii].values, (0,0,0), 1, cv.LINE_AA)
 
         fig = plt.figure(figsize=(15,15))
         plt.imshow(img)
