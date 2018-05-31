@@ -15,23 +15,39 @@ class grain_locations(object):
         self.pims_path = file_path
         self.path = file_path.parent
 
-        self.name = str(file_path.parent.parent.stem) + '_locs.h5'
+        if self.path.stem == 'manta':
+            self.name = str(file_path.parent.parent.stem) + '_locs.h5'
+        elif self.path.stem == 'edgertronic':
+            self.name = str(self.pims_path.stem) + '_locs.h5'
+
         self.file_name = self.path / self.name
-        # self.make_group()
+        self.make_group()
 
         self.info = vid_info
-        self.dt = 1./self.info['frame_rate'] # time between frames
+        self.dt = 1 / self.info['frame_rate'] # time between frames
         self.pix_to_mm = 4.95 / self.get_attr('mean_radius')
-
 
     def make_group(self):
         # open given hdf5 file, file is safely closed when with statement ends
         with h5py.File(self.file_name, 'a') as f:
-            print(list(f.keys()))
-            dset = f['/grain_locs'][:,0]
-            self.make_dataset_attr('start_frame', int(dset.min()))
-            self.make_dataset_attr('end_frame', int(dset.max()))
-            self.make_dataset_attr('mean_radius', np.nanmean(f['/grain_locs'][:,1]))
+            # print(list(f.keys()))
+            dset = f['/grain_locs'][:,3]
+            dmin = dset.min()
+            dmax = dset.max()
+            radius = np.nanmean(f['/grain_locs'][:,2])
+
+            if np.isfinite(dmin):
+                self.make_dataset_attr('start_frame', int(dmin))
+            else:
+                self.make_dataset_attr('start_frame', int(0))
+            if np.isfinite(dmax):
+                self.make_dataset_attr('end_frame', int(dmax))
+            else:
+                self.make_dataset_attr('end_frame', int(0))
+            if np.isfinite(radius):
+                self.make_dataset_attr('mean_radius', radius)
+            else:
+                self.make_dataset_attr('mean_radius', int(0))
 
     # method to add attributes to given dataset
     def make_dataset_attr(self, attribute_title, attribute_value):
@@ -63,19 +79,17 @@ class grain_locations(object):
         # open given hdf5 file, file is safely closed when with statement ends
         with h5py.File(self.file_name, 'r+') as f:
                 dset = f['/grain_locs'][...]  # read dataset from hdf5 file
-                dset = dset[np.where((dset[:,0] >= frange[0]) & (dset[:,0] < frange[1]))[0],:]
-                self.dt = 1/130
-                self.pix_to_mm = 2
+                dset = dset[np.where((dset[:,3] >= frange[0]) & (dset[:,3] < frange[1]))[0],:]
                 return xr.Dataset({
-                        'time': ('frame', dset[:,0]*self.dt),
-                        'radius': ('frame', dset[:,1]),
-                        'x_pix': ('frame', dset[:,2]),
-                        'x_mm': ('frame', dset[:,2]*self.pix_to_mm),
-                        'y_pix': ('frame', dset[:,3]),
-                        'y_mm': ('frame', dset[:,3]*self.pix_to_mm)
+                        'time': ('frame', dset[:,3]*self.dt),
+                        'radius': ('frame', dset[:,2]),
+                        'x_pix': ('frame', dset[:,1]),
+                        'x_mm': ('frame', dset[:,1]*self.pix_to_mm),
+                        'y_pix': ('frame', dset[:,0]),
+                        'y_mm': ('frame', dset[:,0]*self.pix_to_mm)
                         },
                     coords={
-                        'frame': ('frame', dset[:,0].astype(int)),
+                        'frame': ('frame', dset[:,3].astype(int)),
                         })
 
     def see_frame(self, frame_num):

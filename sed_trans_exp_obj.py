@@ -181,9 +181,8 @@ class experiment(object):
             self.path = file_path
             self._raw_info = experiment.EXP_DATA[experiment.EXP_DATA.names == str(self.path.stem)]
 
-            # self.edgertronic = edgertronic_series(file_path=self.path)
+            self.edgertronic = edgertronic_series(file_path=self.path)
             self.manta = manta_series(file_path=self.path)
-
             # self.piv = image_series(camera_name='piv', file_path=self.path)
             # self.canon = image_series(camera_name='bed_TL', file_path=self.path)
             # self.nikon = image_series(camera_name='synoptic_TL', file_path=self.path)
@@ -200,8 +199,8 @@ class experiment(object):
                 'Bed slope (degrees)': self._raw_info['feed_mean_bed_slope'].values[0],
                 'Bed shear stress (Pa)': self._raw_info['taub'].values[0],
                 'Nondimensional bed shear stress': self._raw_info['tau8'].values[0],
-                # 'Edgertronic videos': len(self.edgertronic.movie_paths) if self.edgertronic.movie_paths else 0,
-                # 'Edgertronic frames': int(sum([y['frame_count'] for x, y in self.edgertronic.meta_data_.items()])) if self.edgertronic.movie_paths else 0,
+                'Edgertronic videos': len(self.edgertronic.movie_paths) if self.edgertronic.movie_paths else 0,
+                'Edgertronic frames': int(sum([y['frame_count'] for x, y in self.edgertronic.meta_data_.items()])) if self.edgertronic.movie_paths else 0,
                 'Manta videos': len(self.manta.movie_paths) if self.manta.movie_paths else 0,
                 'Manta frames': int(sum([y['frame_count'] for x, y in self.manta.meta_data_.items()])) if self.manta.movie_paths else 0,
                 # 'Canon images': self.canon.frames._count if self.canon.frames else 0,

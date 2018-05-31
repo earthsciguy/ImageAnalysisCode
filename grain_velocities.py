@@ -23,7 +23,12 @@ class grain_velocities(object):
         self.info = vid_info
         self.pims_path = file_path
         self.path = file_path.parent
-        self.name = str(file_path.parent.parent.stem) + '_velocities.h5'
+
+        if self.path.stem == 'manta':
+            self.name = str(file_path.parent.parent.stem) + '_velocities.h5'
+        elif self.path.stem == 'edgertronic':
+            self.name = str(self.pims_path.stem) + '_velocities.h5'
+
         self.file_name = self.path / self.name
         self.locations = grain_locations.grain_locations(self.pims_path, vid_info)
         self.tracks = grain_tracks.grain_tracks(self.pims_path, vid_info)

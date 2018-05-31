@@ -15,7 +15,12 @@ class grain_tracks(object):
         self.info = vid_info
         self.pims_path = file_path
         self.path = file_path.parent
-        self.name = str(file_path.parent.parent.stem) + '_tracks.h5'
+
+        if self.path.stem == 'manta':
+            self.name = str(file_path.parent.parent.stem) + '_tracks.h5'
+        elif self.path.stem == 'edgertronic':
+            self.name = str(self.pims_path.stem) + '_tracks.h5'
+
         self.file_name = self.path / self.name
         self.locations = grain_locations.grain_locations(self.pims_path, vid_info)
 
@@ -80,5 +85,7 @@ class grain_tracks(object):
                 'particle': ('ind', p_tracks.particle.values)
                 }).set_index(ind=['frame', 'particle'])
 
-        if os.path.isfile(str(self.file_name)) is True: os.remove(str(self.file_name))
+        if os.path.isfile(str(self.file_name)) is True:
+            os.remove(str(self.file_name))
+
         self.tracks.reset_index('ind').to_netcdf(self.file_name)
