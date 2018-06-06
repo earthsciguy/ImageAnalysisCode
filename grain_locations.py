@@ -21,33 +21,11 @@ class grain_locations(object):
             self.name = str(self.pims_path.stem) + '_locs.h5'
 
         self.file_name = self.path / self.name
-        self.make_group()
 
         self.info = vid_info
-        self.dt = 1 / self.info['frame_rate'] # time between frames
-        self.pix_to_mm = 4.95 / self.get_attr('mean_radius')
-
-    def make_group(self):
-        # open given hdf5 file, file is safely closed when with statement ends
-        with h5py.File(self.file_name, 'a') as f:
-            # print(list(f.keys()))
-            dset = f['/grain_locs'][:,3]
-            dmin = dset.min()
-            dmax = dset.max()
-            radius = np.nanmean(f['/grain_locs'][:,2])
-
-            if np.isfinite(dmin):
-                self.make_dataset_attr('start_frame', int(dmin))
-            else:
-                self.make_dataset_attr('start_frame', int(0))
-            if np.isfinite(dmax):
-                self.make_dataset_attr('end_frame', int(dmax))
-            else:
-                self.make_dataset_attr('end_frame', int(0))
-            if np.isfinite(radius):
-                self.make_dataset_attr('mean_radius', radius)
-            else:
-                self.make_dataset_attr('mean_radius', int(0))
+        if os.path.isfile(str(self.file_name)) is True:
+            self.dt = 1 / self.info['frame_rate'] # time between frames
+            self.pix_to_mm = 4.95 / self.get_attr('mean_radius')
 
     # method to add attributes to given dataset
     def make_dataset_attr(self, attribute_title, attribute_value):

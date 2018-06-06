@@ -44,12 +44,15 @@ class grain_velocities(object):
         return xf.where((xf.frame>=frange[0]) & (xf.frame<frange[1]), drop=True)
 
     def velocity_calc(self, df):
+        df.sort_values(by='frame', inplace=True)
+
         if df.index.size <= self.min_track_life:
             return df
 
         else:
             # position of particle along track
-            pos = {'x_mm': df.x_mm.values, 'y_mm': df.y_mm.values, 'x_pix': df.x_pix.values, 'y_pix': df.y_pix.values}
+            pos = {'x_mm': df.x_mm.values, 'y_mm': df.y_mm.values, 'x_pix': df.x_pix.values, 'y_pix': df.y_pix.values,
+                   'x_sub_mm': df.x_sub_mm.values, 'y_sub_mm': df.y_sub_mm.values, 'x_sub_pix': df.x_sub_pix.values, 'y_sub_pix': df.y_sub_pix.values}
             # Calculate time difference between track locations
             dt = np.diff(df.time.values)
 
@@ -79,19 +82,20 @@ class grain_velocities(object):
 
         # open grain locations file
         df = self.tracks.get(frange).reset_index('particle').to_dask_dataframe().set_index('particle').rename(columns={'ind': 'frame'})
-        for key in ['vx_mm', 'vy_mm', 'vx_pix', 'vy_pix']: df[key] = np.nan
-
+        for key in ['vx_mm', 'vx_pix', 'vy_mm', 'vy_pix', 'vx_sub_mm', 'vx_sub_pix', 'vy_sub_mm', 'vy_sub_pix']: df[key] = np.nan
         # or distributed.progress when using the distributed scheduler
-        delayed_obj = df.groupby(['particle']).apply(self.velocity_calc,
-                     meta={'frame': 'int64', 'time': 'float64', 'radius': 'float64',
-                            'x_pix': 'float64', 'x_mm': 'float64', 'y_pix': 'float64', 'y_mm': 'float64',
-                            'vx_pix': 'float64', 'vx_mm': 'float64', 'vy_pix': 'float64', 'vy_mm': 'float64'})
-
+        meta = {'frame': 'int64', 'time': 'float64', 'radius': 'float64',
+         'x_pix': 'float64', 'x_mm': 'float64', 'y_pix': 'float64', 'y_mm': 'float64',
+         'x_sub_pix': 'float64', 'x_sub_mm': 'float64', 'y_sub_pix': 'float64', 'y_sub_mm': 'float64',
+         'vx_pix': 'float64', 'vx_mm': 'float64', 'vy_pix': 'float64', 'vy_mm': 'float64',
+         'vx_sub_pix': 'float64', 'vx_sub_mm': 'float64', 'vy_sub_pix': 'float64', 'vy_sub_mm': 'float64'}
+        delayed_obj = df.groupby(['particle']).apply(self.velocity_calc, meta=meta)
         with ProgressBar():
             results = delayed_obj.compute()
 
         # save particle velocities
-        if os.path.isfile(str(self.file_name)) is True: os.remove(str(self.file_name))
+        if os.path.isfile(str(self.file_name)) is True:
+            os.remove(str(self.file_name))
         xf = xr.Dataset({
             'time': ('ind', results.time.values),
             'radius': ('ind', results.radius.values),
@@ -99,17 +103,25 @@ class grain_velocities(object):
             'x_mm': ('ind', results.x_mm.values),
             'y_pix': ('ind', results.y_pix.values),
             'y_mm': ('ind', results.y_mm.values),
+            'x_sub_pix': ('ind', results.x_pix.values),
+            'x_sub_mm': ('ind', results.x_mm.values),
+            'y_sub_pix': ('ind', results.y_pix.values),
+            'y_sub_mm': ('ind', results.y_mm.values),
             'vx_pix': ('ind', results.vx_pix.values),
             'vx_mm': ('ind', results.vx_mm.values),
             'vy_pix': ('ind', results.vy_pix.values),
-            'vy_mm': ('ind', results.vy_mm.values)
+            'vy_mm': ('ind', results.vy_mm.values),
+            'vx_sub_pix': ('ind', results.vx_sub_pix.values),
+            'vx_sub_mm': ('ind', results.vx_sub_mm.values),
+            'vy_sub_pix': ('ind', results.vy_sub_pix.values),
+            'vy_sub_mm': ('ind', results.vy_sub_mm.values)
             },
             coords={
                 'frame': ('ind', results.frame.values),
                 'particle': ('ind', results.index.values)
             }).to_netcdf(self.file_name)
 
-    def see_frame(self, frame_num, ret=None):
+    def see_frame(self, frame_num, ret=None, smoothed=True):
         if (self.pims_path.suffix == '.mov') or (self.pims_path.suffix == '.mp4'):
             # Load videos
             self.frames = pims.Video(str(self.pims_path))
@@ -119,23 +131,32 @@ class grain_velocities(object):
         img = self.frames[frame_num]
         rings = self.get(frange=(frame_num, frame_num+1))
         s1 = 256
-        s2 = 140
+        s2 = 10
         if rings is not None:
             for row, ring in rings.groupby('particle'):
                 # draw the center of the circle
-                x = int(ring.x_pix.values*s1)
-                y = int(ring.y_pix.values*s1)
-                try:
-                    vx = int(ring.x_pix.values*s1 + ring.vx_pix.values*s1/s2)
-                    vy = int(ring.y_pix.values*s1 + ring.vy_pix.values*s1/s2)
-                except:
-                    continue
+                if smoothed == False:
+                    try:
+                        x = int(ring.x_pix.values*s1)
+                        y = int(ring.y_pix.values*s1)
+                        vx = int(ring.x_pix.values*s1 + ring.vx_pix.values*s1/s2)
+                        vy = int(ring.y_pix.values*s1 + ring.vy_pix.values*s1/s2)
+                    except:
+                        continue
+                elif smoothed == True:
+                    try:
+                        x = int(ring.x_sub_pix.values*s1)
+                        y = int(ring.y_sub_pix.values*s1)
+                        vx = int(ring.x_sub_pix.values*s1 + ring.vx_sub_pix.values*s1/s2)
+                        vy = int(ring.y_sub_pix.values*s1 + ring.vy_sub_pix.values*s1/s2)
+                    except:
+                        continue
                 rad = int(ring.radius.values*s1)
-                if ring.radius.values > 5:
-                    color = (0,0,0)#((ring.particle % 10)*20., (ring.particle % 100)*2, (ring.particle % 1000)/4)
-                    cv.arrowedLine(img, (x, y), (vx, vy), color, 1, cv.LINE_AA, shift=8)
-                    cv.circle(img, (x, y), rad, color, 1, cv.LINE_AA, shift=8)
-                    cv.circle(img, (x, y), 1, color, 1, cv.LINE_AA, shift=8)
+                # if ring.radius.values > 5:
+                color = (0,0,0)#((ring.particle % 10)*20., (ring.particle % 100)*2, (ring.particle % 1000)/4)
+                cv.arrowedLine(img, (x, y), (vx, vy), color, 1, cv.LINE_AA, shift=8)
+                cv.circle(img, (x, y), rad, color, 1, cv.LINE_AA, shift=8)
+                cv.circle(img, (x, y), 1, color, 1, cv.LINE_AA, shift=8)
 
         if ret == 'image':
             return img
@@ -144,7 +165,7 @@ class grain_velocities(object):
             plt.axis('off')
             plt.show()
 
-    def make_movie(self, frange=None):
+    def make_movie(self, frange=None, smoothed=True):
         if frange == None:
             frange = (0, self.info['frame_count'])
 
@@ -153,10 +174,13 @@ class grain_velocities(object):
         duration = num_images/fps
 
         def make_frame(t):
-            return self.see_frame(frange[0] + int(t*fps), ret='image')
+            return self.see_frame(frange[0] + int(t*fps), ret='image', smoothed=smoothed)
 
         animation = mpy.VideoClip(make_frame, duration=duration)
-        animation.write_videofile(str(self.file_name.parent / self.file_name.stem) + 'output.mp4', fps=fps) # export as video
+        if smoothed == False:
+            animation.write_videofile(str(self.file_name.parent / self.file_name.stem) + '_output_.mp4', fps=fps) # export as video
+        elif smoothed == True:
+            animation.write_videofile(str(self.file_name.parent / self.file_name.stem) + '_output_smoothed.mp4', fps=fps) # export as video
 
 # i = 1
 # file_name = pathlib.Path('/Users/ericdeal/Dropbox (MIT)/3_postdoc/projects/sed_transport/1_data/0_main_feed_exp_data/_2017_exps/_data/glass_beads/exp_transport_stage_%i/manta/glass_beads_feed_n3p3_manta_record_130_playback_32.5.mp4'%i)
