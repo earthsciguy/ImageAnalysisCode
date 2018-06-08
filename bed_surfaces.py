@@ -35,7 +35,7 @@ class bed_surfaces(object):
             frange = (0, self.info['frame_count'])
 
         xf = xr.open_dataset(self.file_name)
-        if frange[1] > xf.frame.max():
+        if frange[1] > xf.frame.max()+1:
             return None
         else:
             return xf.where((xf.frame>=frange[0]) & (xf.frame<frange[1]), drop=True)
