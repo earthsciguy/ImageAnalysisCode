@@ -22,7 +22,7 @@ import bed_surfaces
 class grain_velocities(object):
 
     # init method run when instance is created
-    def __init__(self, locs, bed, tracks, file_path=None, vid_info=None, rotation=0):
+    def __init__(self, file_path=None, vid_info=None, rotation=0):
         self.info = vid_info
         self.pims_path = file_path
         self.path = file_path.parent
@@ -33,12 +33,9 @@ class grain_velocities(object):
             self.name = str(self.pims_path.stem) + '_velocities.h5'
 
         self.file_name = self.path / self.name
-        # self.locs = grain_locations.grain_locations(self.pims_path, vid_info)
-        # self.tracks = grain_tracks.grain_tracks(self.pims_path, vid_info)
-        # self.bed = bed_surfaces.bed_surfaces(self.pims_path, vid_info)
-        self.locs = locs
-        self.tracks = tracks
-        self.bed = bed
+        self.locs = grain_locations.grain_locations(self.pims_path, vid_info)
+        self.tracks = grain_tracks.grain_tracks(self.pims_path, vid_info)
+        self.bed = bed_surfaces.bed_surfaces(self.pims_path, vid_info)
         self.theta = rotation # degrees to rotate bed
         self.min_track_life = 5
 
@@ -153,11 +150,10 @@ class grain_velocities(object):
         s2 = 100
 
         imgs = np.zeros((int(frange[1]-frange[0]), int(self.info['vertical_dim']), int(self.info['horizontal_dim']), 3))
-        for jj, frame_num in enumerate(tqdm.tqdm(range(frange[0], frange[1]))):
+        for ii, frame_num in enumerate(tqdm.tqdm(range(frange[0], frange[1]))):
             img = self.frames[frame_num]
 
-            # y = bed.sel(frame=frame_num).y_pix_bed_lin.values
-            y = bed.sel(frame=frame_num).y_pix_bed.values
+            y = bed.sel(frame=frame_num).y_pix_bed_lin.values
             # draw bed surface
             x = np.arange(y.size)
             pts_to_draw = np.array([[np.round(x[ii]*s1).astype(np.int), np.round(y[ii]*s1).astype(np.int)] for ii in range(x.size)])
@@ -189,11 +185,11 @@ class grain_velocities(object):
                         continue
 
                 color = (0,0,0)
-                cv.circle(img, (x, y), 3*s1, color, -1, cv.CV_AA, shift=8)
-                cv.arrowedLine(img, (x, y), (vx, vy), color, 2, cv.CV_AA, shift=8)
-                # cv.circle(img, (x, y), rad, color, 1, cv.CV_AA, shift=8)
+                cv.circle(img, (x, y), 3*s1, color, -1, cv.LINE_AA, shift=8)
+                cv.arrowedLine(img, (x, y), (vx, vy), color, 2, cv.LINE_AA, shift=8)
+                # cv.circle(img, (x, y), rad, color, 1, cv.LINE_AA, shift=8)
 
-            imgs[jj,:,:,:] = img
+            imgs[ii,:,:,:] = img
 
         if ret == 'image':
             return imgs

@@ -2,243 +2,226 @@ import numpy as np
 import pims
 import h5py
 import pandas as pd
+import xarray as xr
+import os
 import tqdm
+tqdm.tqdm.pandas(desc="Main loop")
 import grain_locations
 import grain_tracks
 import grain_velocities
-
+import bed_surfaces
 
 class area_weighted_quantities(object):
 
     # init method run when instance is created
-    def __init__(self, file_path=None, vid_info=None, rotation=0):
+    def __init__(self, locs, bed, tracks, vels, file_path=None, vid_info=None, rotation=0):
+        self.info = vid_info
         self.pims_path = file_path
         self.path = file_path.parent
-        self.name = file_path.parent.stem
-        h5_name_tracks = str(file_path.stem) + '_area_weighted_quantities.h5'
-        self.file_name = file_path.parent / h5_name_tracks
+        if self.path.stem == 'manta':
+            self.name = str(file_path.parent.parent.stem) + '_area_weighted_quantities.h5'
+            self.profile_name = str(file_path.parent.parent.stem) + '_area_weighted_profiles.h5'
+        elif self.path.stem == 'edgertronic':
+            self.name = str(self.pims_path.stem) + '_area_weighted_quantities.h5'
+            self.profile_name = str(self.pims_path.stem) + '_area_weighted_profiles.h5'
 
-        self.locations = grain_locations.grain_locations(self.pims_path)
-        self.tracks = grain_tracks.grain_tracks(self.pims_path)
-        self.velocities = grain_velocities.grain_velocities(self.pims_path, vid_info=vid_info)
+        self.file_name = self.path / self.name
+        self.profile_file_name = self.path / self.profile_name
+        # self.locs = grain_locations.grain_locations(self.pims_path, vid_info)
+        # self.tracks = grain_tracks.grain_tracks(self.pims_path, vid_info)
+        # self.bed = bed_surfaces.bed_surfaces(self.pims_path, vid_info)
+        # self.vels = grain_velocities.grain_velocities(self.pims_path, vid_info=vid_info)
+        self.locs = locs
+        self.tracks = tracks
+        self.bed = bed
+        self.vels = vels
 
         # choose bed slope
         self.theta = rotation # degrees to rotate bed
-        self.info = vid_info
         self.dt = 1./self.info['frame_rate'] # time between frames
-        # self.pixel_d = self.info['pixel_d']
-        # self.pixel_d = 2.5 # pixels per mm
-
-        self.make_group()
-
-
-    def make_group(self):
-        # open given hdf5 file, file is safely closed when with statement ends
-        # print self.file_name
-        with h5py.File(self.file_name, 'a') as f:
-
-            if not '/area_weighted_quantities' in f:
-                grp = f.create_group('area_weighted_quantities')
-                self.group = grp.name
-                self.dataset_names = []
-                self.dataset_ranges = []
-
-            else:
-                # create a new link for the station instance
-                grp = f['area_weighted_quantities']
-                # save group name for later use
-                self.group = grp.name
-                self.find_datasets()
-
-
-    # method to overwrite an existing dataset with new data
-    def overwrite_dataset(self, frange, data_name, data_in):
-        print 'Saving velocities...'
-
-        with h5py.File(self.file_name, 'r+') as f:
-            # set dataset name
-            dataset_name = 'frames_%ito%i' % frange
-
-            # check if group already exists
-            if not(self.group + '/' + dataset_name in f):
-
-                # create dataset using given name and data
-                f.create_dataset(self.group + '/' + dataset_name, data=data_in,
-                                 maxshape=(None, None),
-                                 fletcher32=True,
-                                 shuffle=True,
-                                 compression='lzf'
-                                 )
-            else:
-                # overwrite specified dataset
-                f['/' + self.group + '/' + dataset_name].resize(data_in.shape)
-                f['/' + self.group + '/' + dataset_name][...] = data_in
-
-        # add attributes
-        self.make_dataset_attr(dataset_name, 'start_frame', frange[0])
-        self.make_dataset_attr(dataset_name, 'end_frame', frange[1])
-
-
-    # method to add attributes to given dataset
-    def make_dataset_attr(self, dataset_name, attribute_title, attribute_value):
-
-        # open file
-        with h5py.File(self.file_name, 'r+') as f:
-            grp = f['/' + self.group]
-            dset = grp[dataset_name]
-            dset.attrs[attribute_title] = attribute_value
-
-
-    # method to get all attributes for a dataset
-    def get_attrlist(self, dataset_name):
-
-        # open file
-        with h5py.File(self.file_name, 'r+') as f:
-            grp = f['/' + self.group]
-            dset = grp[dataset_name]
-            return [(name, val) for name, val in dset.attrs.iteritems()]
-
-
-    # method to get a specific attribute value for dataset
-    def get_attr(self, dataset_name, attribute_name):
-
-        # open file
-        with h5py.File(self.file_name, 'r+') as f:
-            grp = f['/' + self.group]
-            dset = grp[dataset_name]
-            # ask for attribute, will return 'None' if the attribute does not exist
-            return dset.attrs.get(attribute_name)
-
-
-    # method to find already existing datasets
-    def find_datasets(self):
-        # open file
-        with h5py.File(self.file_name, 'r+') as f:
-            grp = f['/' + self.group]
-            self.dataset_names = np.array([x for x in grp])
-            self.dataset_ranges = np.array([[self.get_attrlist(x)[0][1], self.get_attrlist(x)[1][1]] for x in grp])
 
 
     # method to output dataset
-    def get_frame_area_weighted_quantities(self, frange=None):
+    def get_data(self, frange=None):
         if frange == None:
             frange = (0, self.info['frame_count'])
 
-        dataset_names = self.dataset_names[np.where((frange[0] >= self.dataset_ranges[:,1]) | (frange[1] < self.dataset_ranges[:,0]), False, True)]
-
-        # open given hdf5 file, file is safely closed when with statement ends
-        with h5py.File(self.file_name, 'r+') as f:
-
-            # try:
-            # add group name to beginning of dataset name
-            dset = np.array([])
-            for dataset_name in dataset_names:
-                path_name = self.group + '/' + dataset_name
-                return np.nanmean(f[path_name][...], axis=0)
-                # dset = np.vstack([dset, f[path_name][...]])  # read dataset from hdf5 file
-
-            #     dset = dset[1:,:]
-            #     dset = dset[np.argsort(dset[:,0]),:]
-            #     if (dset[:,0][0] <= frange[0]) & (dset[:,0][-1] >= frange[1]-1):
-            #         velocity_data = dset[(dset[:,0] >= frange[0]) & (dset[:,0] < frange[1]),:]
-            #         df_velocities = pd.DataFrame({
-            #                             'frame': velocity_data[:,0].astype(int),
-            #                             'rad': velocity_data[:,2],
-            #                             # rotate coordinates by theta degrees
-            #                             'x': velocity_data[:,5],
-            #                             'vx': velocity_data[:,3],
-            #                             'y': velocity_data[:,6],
-            #                             'vy': velocity_data[:,4],
-            #                             'particle': velocity_data[:,1].astype(int),
-            #                                     })
-            #         return df_velocities
-            #
-            #     else:
-            #         return None
-            #
-            # except:
-            #     return None
+        xf = xr.open_dataset(self.file_name).set_index(ind=['frame', 'y_mm'])
+        return xf.where((xf.frame>=frange[0]) & (xf.frame<frange[1]), drop=True)
 
 
-    def batch_area_weighted_quantities(self, frange, nj=100):
-        df_vels = self.velocities.get_frame_grain_velocities(frange)
-
-        # calculate Ay and Ax
-        n_frames = df_vels.frame.max() - df_vels.frame.min()
-
-        # xtotal = df_vels.x.values.max() - df_vels.x.values.min() + 5
-        # Ayo = 10.1 * xtotal
-        # ytotal = df_vels.y.values.max() - df_vels.y.values.min() + 5
-        # Axo = 10.1 * ytotal
-
-        # nk = 500
-        # xk = np.linspace(df_vels.x.values.min(), df_vels.x.values.max(), nk)
-        # Axt = np.zeros((n_frames, nk))
-        # Phi_xt = np.zeros((n_frames, nk))
-        # Vy_xt = np.zeros((n_frames, nk))
-        # Vx_xt = np.zeros((n_frames, nk))
-        # V2_xt = np.zeros((n_frames, nk))
-
-        yj = np.linspace(50, 0, nj)
-        Ayt = np.zeros((n_frames, nj))
-        Phi_yt = np.zeros((n_frames, nj))
-        Vx_yt = np.zeros((n_frames, nj))
-        Vy_yt = np.zeros((n_frames, nj))
-        V2_yt = np.zeros((n_frames, nj))
-        print 'Finding area averaged quantities of particles...'
-        for ff in tqdm.tqdm(range(n_frames)):
-            df_frame = df_vels[df_vels.frame==ff]
-            # for kk in range(nk):
-            #     df_k = df_frame[df_frame.rad.values - np.abs(df_frame.x.values - xk[kk]) > 0]
-            #     Axt[ff, kk] = np.pi * np.sum(df_k.rad.values**2 - (df_k.x.values - xk[kk])**2)
-            #     Phi_xt[ff, kk] = Axt[ff, kk] / Axo
-            #     Vx_xt[ff, kk] = (np.pi * np.sum( df_k.vx.values*(df_k.rad.values**2 - (df_k.x.values - xk[kk])**2) )) / Axt[ff, kk]
-            #     Vy_xt[ff, kk] = (np.pi * np.sum( df_k.vy.values*(df_k.rad.values**2 - (df_k.x.values - xk[kk])**2) )) / Axt[ff, kk]
-            #     V2_xt[ff, kk] = (np.pi * np.sum( (df_k.vx.values**2 + df_k.vy.values**2)*(df_k.rad.values**2 - (df_k.x.values - xk[kk])**2) )) / Axt[ff, kk]
-
-            for jj in range(nj):
-                df_j = df_frame[df_frame.rad.values - np.abs(df_frame.y.values - yj[jj]) > 0]
-                temp = df_j.rad.values**2 - (df_j.y.values - yj[jj])**2
-                Ayt[ff, jj] = np.pi * np.sum(temp)
-                # Phi_yt[ff, jj] = Ayt[ff, jj] / Ayo
-                Vx_yt[ff, jj] = (np.pi * np.sum(df_j.vx.values*(temp))) / Ayt[ff, jj]
-                Vy_yt[ff, jj] = (np.pi * np.sum(df_j.vy.values*(temp))) / Ayt[ff, jj]
-                # V2_yt[ff, jj] = (np.pi * np.sum((df_j.vx.values**2 + df_j.vy.values**2)*(temp))) / Ayt[ff, jj]
-
-        datas = {
-            # 'Axt': Axt, 'Phi_xt': Phi_xt, 'Vx_xt': Vx_xt, 'Vy_xt': Vy_xt, 'V2_xt': V2_xt,
-            'Ayt': Ayt, 'Phi_yt': Phi_yt, 'Vx_yt': Vx_yt, 'Vy_yt': Vy_yt, 'V2_yt': V2_yt
-                }
-
-        # save particle velocities
-        self.overwrite_dataset(frange, 'Vx_yt', Vx_yt)
-        self.find_datasets()
-        # for name, data in datas.iteritems():
-        #     overwrite_dataset(exp+'_'+name+'.hdf5', 'frames_%ito%i' % (start_frames[batch], end_frames[batch]), name, data)
+    # method to output profiles
+    def get(self, frange=None):
+        return xr.open_dataset(self.profile_file_name).set_index(ind=['y_mm'])
 
 
-    def get_velocities(self, Trange=None, batch_size=None):
-        if Trange == None:
-            Trange = (0, self.info['frame_count'])
+    def frame_area_weighted_quantities_calc(self, df):
+        A_y = np.zeros(self.pix_y_range.size) # area of spheres intersecting plane at yi
+        Phi_y = np.zeros(self.pix_y_range.size) # volume fraction of spheres at yi
+        Vx_y = np.zeros(self.pix_y_range.size) # average x velocity of spheres intersecting plane weighted by intersection area
+        Vy_y = np.zeros(self.pix_y_range.size) # average y velocity of spheres intersecting plane weighted by intersection area
+        Vmag_y = np.zeros(self.pix_y_range.size) # magnitude of velocity of spheres intersecting plane weighted by intersection area
 
-        if batch_size == None:
-            batch_size = Trange[1] - Trange[0] + 1
+        for ii, yi in enumerate(tqdm.tqdm(self.pix_y_range, desc='mean field loop')):
+            # find the subset of particles that intersect plane at yi
+            df_j = df[df.radius_mm.values - np.abs(df.dy_sub_mm.values - yi) > 0]
+            # radius circle of intersection of each sphere intersecting plane at yi
+            # print(df_j.radius_mm.values.mean(), (df_j.dy_sub_mm.values - yi).mean())
+            intersecting_radius_squared = df_j.radius_mm.values**2 - (df_j.dy_sub_mm.values - yi)**2
+            # total area of intersecting spheres
+            A_y[ii] = np.pi * np.nansum(intersecting_radius_squared)
 
-        # break into batches
-        N_frames = Trange[1] - Trange[0]
-        N_batches = np.floor((N_frames-1) / batch_size).astype(int) + 1
-        start_frames = Trange[0] + batch_size * np.arange(N_batches+1)
-        start_frames[-1] = Trange[1]
+            Vx_y[ii] = (np.pi * np.nansum(df_j.vx_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+            Vy_y[ii] = (np.pi * np.nansum(df_j.vy_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+            Vmag_y[ii] = (np.pi * np.nansum(np.sqrt(df_j.vx_sub_mm.values**2 + df_j.vy_sub_mm.values**2)*intersecting_radius_squared)) / A_y[ii]
+            Phi_y[ii] = A_y[ii] / self.A_yo[ii]
 
-        fail = np.zeros(N_batches)
-        for batch in range(N_batches):
-            print 'Processing batch %i of %i' % (batch+1, N_batches)
+        self.df_temp = pd.DataFrame({'Vx_y': Vx_y, 'Vy_y': Vy_y}, index=self.pix_y_range)
+        self.df_temp.index.name = 'y'
+        self.df_temp = self.df_temp.reset_index()
 
-            # try:
-                # locate particles
-            self.batch_area_weighted_quantities((start_frames[batch], start_frames[batch+1]))
-            # except:
-                # fail[batch] = 1
-                # pass
+        # function to calculate deviation from mean velocity for each particles
+        def dvi_calc(particle):
+            for m in ['x', 'y']:
+                particle['dv'+m+'_sub_mm'] = np.array([particle['v'+m+'_sub_mm'].values[ii] - self.df_temp['V'+m+'_y'][np.argmin(np.abs(self.df_temp.y - particle.y_mm.values[ii]))] for ii in range(particle.y_mm.values.size)])
+            return particle
 
-        return fail
+        # calculate deviations in velocities of particles relative to mean velocity Vm_y assessed at center of particle
+        df['dvx_sub_mm'] = np.zeros_like(df.vx_pix.values) * np.nan
+        df['dvy_sub_mm'] = np.zeros_like(df.vx_pix.values) * np.nan
+        tqdm.tqdm.pandas(desc="deviatoric loop 1")
+        df = df.groupby('particle').progress_apply(dvi_calc)
+
+        # calculate mean deviatoric velocities
+        A_y = np.zeros(self.pix_y_range.size) # area of spheres intersecting plane at yi
+        Vxx_y = np.zeros(self.pix_y_range.size) # average x velocity of spheres intersecting plane weighted by intersection area
+        Vyy_y = np.zeros(self.pix_y_range.size) # average y velocity of spheres intersecting plane weighted by intersection area
+        Vxy_y = np.zeros(self.pix_y_range.size) # average y velocity of spheres intersecting plane weighted by intersection area
+
+        for ii, yi in enumerate(tqdm.tqdm(self.pix_y_range, desc='deviatoric loop 2')):
+            # find the subset of particles that intersect plane at yi
+            df_j = df[df.radius_mm.values - np.abs(df.dy_sub_mm.values - yi) > 0]
+            # radius circle of intersection of each sphere intersecting plane at yi
+            intersecting_radius_squared = df_j.radius_mm.values**2 - (df_j.dy_sub_mm.values - yi)**2
+            # total area of intersecting spheres
+            A_y[ii] = np.pi * np.nansum(intersecting_radius_squared)
+
+            Vxx_y[ii] = (np.pi * np.nansum(df_j.dvx_sub_mm.values*df_j.dvx_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+            Vxy_y[ii] = (np.pi * np.nansum(df_j.dvx_sub_mm.values*df_j.dvy_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+            Vyy_y[ii] = (np.pi * np.nansum(df_j.dvy_sub_mm.values*df_j.dvy_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+
+        df_out = pd.DataFrame({'A_y': A_y, 'Vx_y': Vx_y, 'Vy_y': Vy_y, 'Vxx_y': Vxx_y, 'Vxy_y': Vxy_y, 'Vyy_y': Vyy_y, 'Vmag_y': Vmag_y, 'Phi_y': Phi_y}, index=self.pix_y_range)
+        df_out.index.name = 'y'
+
+        return df_out.reset_index()
+
+
+    def movie_area_weighted_quantities_calc(self, df):
+        A_y = np.zeros(self.pix_y_range.size) # area of spheres intersecting plane at yi
+        Vx_y = np.zeros(self.pix_y_range.size) # average x velocity of spheres intersecting plane weighted by intersection area
+        Vy_y = np.zeros(self.pix_y_range.size) # average y velocity of spheres intersecting plane weighted by intersection area
+        Vmag_y = np.zeros(self.pix_y_range.size) # magnitude of velocity of spheres intersecting plane weighted by intersection area
+
+        for ii, yi in enumerate(tqdm.tqdm(self.pix_y_range)):
+            # find the subset of particles that intersect plane at yi
+            df_j = df[df.radius_mm.values - np.abs(df.dy_sub_mm.values - yi) > 0]
+            # radius circle of intersection of each sphere intersecting plane at yi
+            # print(df_j.radius_mm.values.mean(), (df_j.dy_sub_mm.values - yi).mean())
+            intersecting_radius_squared = df_j.radius_mm.values**2 - (df_j.dy_sub_mm.values - yi)**2
+            # total area of intersecting spheres
+            A_y[ii] = np.pi * np.nansum(intersecting_radius_squared)
+
+            Vx_y[ii] = (np.pi * np.nansum(df_j.vx_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+            Vy_y[ii] = (np.pi * np.nansum(df_j.vy_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+            Vmag_y[ii] = (np.pi * np.nansum(np.sqrt(df_j.vx_sub_mm.values**2 + df_j.vy_sub_mm.values**2)*intersecting_radius_squared)) / A_y[ii]
+
+        self.df_temp = pd.DataFrame({'Vx_y': Vx_y, 'Vy_y': Vy_y}, index=self.pix_y_range)
+        self.df_temp.index.name = 'y'
+        self.df_temp = self.df_temp.reset_index()
+
+        # function to calculate deviation from mean velocity for each particles
+        def dvi_calc(particle):
+            for m in ['x', 'y']:
+                particle['dv'+m+'_sub_mm'] = np.array([particle['v'+m+'_sub_mm'].values[ii] - self.df_temp['V'+m+'_y'][np.argmin(np.abs(self.df_temp.y - particle.y_mm.values[ii]))] for ii in range(particle.y_mm.values.size)])
+            return particle
+
+        # calculate deviations in velocities of particles relative to mean velocity Vm_y assessed at center of particle
+        df['dvx_sub_mm'] = np.zeros_like(df.vx_pix.values) * np.nan
+        df['dvy_sub_mm'] = np.zeros_like(df.vx_pix.values) * np.nan
+        df = df.groupby('particle').progress_apply(dvi_calc)
+
+        # calculate mean deviatoric velocities
+        A_y = np.zeros(self.pix_y_range.size) # area of spheres intersecting plane at yi
+        Vxx_y = np.zeros(self.pix_y_range.size) # average x velocity of spheres intersecting plane weighted by intersection area
+        Vyy_y = np.zeros(self.pix_y_range.size) # average y velocity of spheres intersecting plane weighted by intersection area
+        Vxy_y = np.zeros(self.pix_y_range.size) # average y velocity of spheres intersecting plane weighted by intersection area
+
+        for ii, yi in enumerate(tqdm.tqdm(self.pix_y_range)):
+            # find the subset of particles that intersect plane at yi
+            df_j = df[df.radius_mm.values - np.abs(df.dy_sub_mm.values - yi) > 0]
+            # radius circle of intersection of each sphere intersecting plane at yi
+            intersecting_radius_squared = df_j.radius_mm.values**2 - (df_j.dy_sub_mm.values - yi)**2
+            # total area of intersecting spheres
+            A_y[ii] = np.pi * np.nansum(intersecting_radius_squared)
+
+            Vxx_y[ii] = (np.pi * np.nansum(df_j.dvx_sub_mm.values*df_j.dvx_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+            Vxy_y[ii] = (np.pi * np.nansum(df_j.dvx_sub_mm.values*df_j.dvy_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+            Vyy_y[ii] = (np.pi * np.nansum(df_j.dvy_sub_mm.values*df_j.dvy_sub_mm.values*intersecting_radius_squared)) / A_y[ii]
+
+        df_out = pd.DataFrame({'A_y': A_y, 'Vx_y': Vx_y, 'Vy_y': Vy_y, 'Vxx_y': Vxx_y, 'Vxy_y': Vxy_y, 'Vyy_y': Vyy_y, 'Vmag_y': Vmag_y}, index=self.pix_y_range)
+        df_out.index.name = 'y'
+
+        return df_out.reset_index()
+
+
+    def calculate(self, frange=None):
+        if frange == None:
+            frange = (0, self.info['frame_count'])
+
+        print('Calculating area averaged velocities...')
+
+        # open grain locations file
+        df = self.vels.get(frange).reset_index('ind').to_dataframe().reset_index()
+        self.pix_y_range = np.arange(np.int(df.dy_sub_pix.min()), np.int(df.dy_sub_pix.max()))
+        W = self.info['horizontal_dim']
+        H = self.info['vertical_dim']
+        b = H-self.bed.get().y_pix_bed_lin.groupby('x').mean().values[0]
+        m = -np.diff(self.bed.get().y_pix_bed_lin.groupby('x').mean().values).mean()
+        width = np.zeros(self.pix_y_range.size)
+        for i, y in enumerate(self.pix_y_range):
+            if y < 0:
+                width[i] = np.max([np.min([W + (b+y)/m, W]), 0])
+            else:
+                width[i] = np.min([(y+b-H)/-m, W])
+
+        self.A_yo = 10.1 * width * self.locs.pix_to_mm
+
+        # calculate area_weighted_quantities
+        # results = self.area_weighted_quantities_calc(df.copy())
+        # results = df.groupby(['frame']).progress_apply(self.frame_area_weighted_quantities_calc).reset_index()
+
+        # # save frame-by-frame data
+        # if os.path.isfile(str(self.file_name)) is True:
+        #     os.remove(str(self.file_name))
+        #
+        # xf = xr.Dataset({
+        #     'A_y': ('ind', results.A_y.values),
+        #     'Vy_y': ('ind', results.Vy_y.values),
+        #     'Vx_y': ('ind', results.Vx_y.values),
+        #     'Vxx_y': ('ind', results.Vxx_y.values),
+        #     'Vxy_y': ('ind', results.Vxy_y.values),
+        #     'Vyy_y': ('ind', results.Vyy_y.values),
+        #     'V_mag_yt': ('ind', results.Vmag_y.values),
+        #     'Phi_y': ('ind', results.Phi_y.values),
+        #     },
+        #     coords={
+        #         'frame': ('ind', results.frame.values),
+        #         'y_mm': ('ind', results.y.values),
+        #     }).to_netcdf(self.file_name)
+
+        xf = self.get_data(frange)
+
+        # average over frames and save as profile data
+        mean_xf = xr.Dataset(xf.groupby('y_mm').mean().to_dataframe().rolling(11, center=True, win_type='cosine').mean()).rename({'Vxy_y':'Vxy_y_mean', 'Vx_y':'Vx_y_mean', 'Vy_y':'Vy_y_mean', 'Phi_y':'Phi_y_mean', 'Vyy_y':'Vyy_y_mean', 'Vxx_y':'Vxx_y_mean', 'V_mag_yt': 'V_mag_y_mean', 'A_y':'A_y_mean'})
+        std_xf = xf.groupby('y_mm').std().rename({'Vxy_y':'Vxy_y_std', 'Vx_y':'Vx_y_std', 'Vy_y':'Vy_y_std', 'Phi_y':'Phi_y_std', 'Vyy_y':'Vyy_y_std', 'Vxx_y':'Vxx_y_std', 'V_mag_yt': 'V_mag_y_std', 'A_y':'A_y_std'})
+        xr.merge([mean_xf, std_xf]).to_netcdf(self.profile_file_name)

@@ -11,18 +11,16 @@ import re
 import tqdm
 tqdm.tqdm.pandas()
 import grain_locations
-reload(grain_locations)
+importlib.reload(grain_locations)
 import grain_tracks
-reload(grain_tracks)
+importlib.reload(grain_tracks)
 import grain_velocities
-reload(grain_velocities)
+importlib.reload(grain_velocities)
 import bed_surfaces
-reload(bed_surfaces)
+importlib.reload(bed_surfaces)
 import area_weighted_quantities
-reload(area_weighted_quantities)
-import mass_flux
-reload(mass_flux)
-import os, time
+importlib.reload(area_weighted_quantities)
+import os
 
 
 class manta_series(object):
@@ -44,7 +42,7 @@ class manta_series(object):
         # self.locs = grain_locations.grain_locations(self.path, vid_info=self.meta_data)
         # self.tracks = grain_tracks.grain_tracks(self.path, vid_info=self.meta_data)
         # self.vels = grain_velocities.grain_velocities(self.path, vid_info=self.meta_data)
-        # self.bed = bed_surfaces.bed_surfaces(self.path, vid_info=self.meta_data)
+        self.bed = bed_surfaces.bed_surfaces(self.path, vid_info=self.meta_data)
 
     def __repr__(self):
         s = ''
@@ -73,14 +71,12 @@ class edgertronic_series(object):
                     'duration': float(re.split(r'\t', df.iloc[8][1])[1]),
                     'frame_count': float(re.split(r'\t', df.iloc[25][1])[1])
                     }
-
         self.meta_data = movie_info(str(self.path).split('.mov')[0])
         self.locs = grain_locations.grain_locations(self.path, vid_info=self.meta_data)
-        self.bed = bed_surfaces.bed_surfaces(self.locs, self.path, vid_info=self.meta_data)
-        self.tracks = grain_tracks.grain_tracks(self.locs, self.bed, self.path, vid_info=self.meta_data)
-        self.vels = grain_velocities.grain_velocities(self.locs, self.bed, self.tracks, self.path, vid_info=self.meta_data)
-        self.awq = area_weighted_quantities.area_weighted_quantities(self.locs, self.bed, self.tracks, self.vels, self.path, vid_info=self.meta_data)
-        self.flux = mass_flux.mass_flux(self.locs, self.bed, self.tracks, self.vels, self.path, vid_info=self.meta_data)
+        self.tracks = grain_tracks.grain_tracks(self.path, vid_info=self.meta_data)
+        self.vels = grain_velocities.grain_velocities(self.path, vid_info=self.meta_data)
+        self.bed = bed_surfaces.bed_surfaces(self.path, vid_info=self.meta_data)
+        self.awq = area_weighted_quantities.area_weighted_quantities(self.path, vid_info=self.meta_data)
 
     def __repr__(self):
         s = ''
@@ -167,15 +163,12 @@ class experiment(object):
             self.name = self._raw_info.names.values[0]
             # print(self._raw_info.names)
 
-#             t = time.time()
-#             manta_path = file_path / 'manta'
-#             print(time.time() - t)
-#
-# #             if manta_path.exists():
-# #                 movies = [x for x in list(manta_path.glob('*.mp4')) if 'compressed' in str(x)]
-# #                 self.manta = [manta_series(file_path=x) for x in movies]
-# #             else:
-#             self.manta = []
+            manta_path = file_path / 'manta'
+#             if manta_path.exists():
+#                 movies = [x for x in list(manta_path.glob('*.mp4')) if 'compressed' in str(x)]
+#                 self.manta = [manta_series(file_path=x) for x in movies]
+#             else:
+            self.manta = []
 
             edgertronic_path = file_path / 'edgertronic'
             if edgertronic_path.exists():
@@ -198,10 +191,10 @@ class experiment(object):
                 self.ldv= []
 
             synoptic_path = file_path / 'synoptic'
-            # if synoptic_path.exists():
-            #     self.synoptic = synoptic_series(synoptic_path)
-            # else:
-            self.synoptic= []
+            if synoptic_path.exists():
+                self.synoptic = synoptic_series(synoptic_path)
+            else:
+                self.synoptic= []
 
             self.info = {
                 'Experiment name': str(self.path.stem),
@@ -214,12 +207,11 @@ class experiment(object):
                 'Hydraulic radius (m)': self._raw_info['hyd_rad'].values[0],
                 'Bed slope (degrees)': self._raw_info['feed_mean_bed_slope'].values[0],
                 'Bed shear stress (Pa)': self._raw_info['taub'].values[0],
-                'Mean flow depth (m)': self._raw_info['feed_flow_depth_mean'].values[0],
                 'Nondimensional bed shear stress': self._raw_info['tau8'].values[0],
-                # 'Edgertronic videos': len(self.edgertronic) if self.edgertronic else 0,
-                # 'Edgertronic frames': int(sum([x.meta_data['frame_count'] for x in self.edgertronic])) if edgertronic_path else 0,
-                # 'Manta videos': len(self.manta) if self.manta else 0,
-                # 'Manta frames': int(sum([x.meta_data['frame_count'] for x in self.manta])) if manta_path else 0,
+                'Edgertronic videos': len(self.edgertronic) if self.edgertronic else 0,
+                'Edgertronic frames': int(sum([x.meta_data['frame_count'] for x in self.edgertronic])) if edgertronic_path else 0,
+                'Manta videos': len(self.manta) if self.manta else 0,
+                'Manta frames': int(sum([x.meta_data['frame_count'] for x in self.manta])) if manta_path else 0,
                 # 'Canon images': self.canon.frames._count if self.canon.frames else 0,
                 # 'Nikon image': self.nikon.frames._count if self.nikon.frames else 0,
                     }
